@@ -18,21 +18,35 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Sync from upstream
-        continue-on-error: true
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote add upstream https://github.com/TBXark/ChatGPT-Telegram-Workers.git 2>/dev/null || git remote set-url upstream https://github.com/TBXark/ChatGPT-Telegram-Workers.git
-          git fetch upstream master
+
+          if git remote | grep -qF upstream; then
+            git remote set-url upstream https://github.com/TBXark/ChatGPT-Telegram-Workers.git
+          else
+            git remote add upstream https://github.com/TBXark/ChatGPT-Telegram-Workers.git
+          fi
+
+          if ! git fetch upstream master; then
+            echo "::warning::Failed to fetch upstream, skipping sync"
+            exit 0
+          fi
+
           if git merge-base --is-ancestor upstream/master HEAD; then
             echo "Already up to date with upstream."
           else
             echo "Upstream has new commits, merging..."
-            git merge upstream/master -m "Auto-sync from upstream"
-            git push origin HEAD:master
-            echo "Synced and pushed to origin."
+            if ! git merge upstream/master -m "Auto-sync from upstream"; then
+              echo "::warning::Merge conflict, skipping sync"
+              git merge --abort
+              exit 0
+            fi
+            git push origin HEAD:master || echo "::warning::Failed to push"
           fi
 
       - name: Setup Node.js
