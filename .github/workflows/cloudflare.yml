@@ -3,16 +3,37 @@ name: Deploy to Cloudflare Workers
 on:
   push:
     branches: [ "master" ]
+  schedule:
+    - cron: '0 5 * * *'   # 每天北京时间 13:00 (GMT+8)
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    name: Deploy to Cloudflare
+    name: Sync & Deploy
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+
+      - name: Sync from upstream
+        continue-on-error: true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/TBXark/ChatGPT-Telegram-Workers.git
+          git fetch upstream master
+          if git merge-base --is-ancestor upstream/master HEAD; then
+            echo "Already up to date with upstream."
+          else
+            echo "Upstream has new commits, merging..."
+            git merge upstream/master -m "Auto-sync from upstream"
+            git push origin HEAD:master
+            echo "Synced and pushed to origin."
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -23,7 +44,7 @@ jobs:
         run: |
           touch wrangler.toml
           cat << 'EOF' > wrangler.toml
-          ${{secrets.WRANGLER_TOML}} 
+          ${{secrets.WRANGLER_TOML}}
           EOF
 
       - name: Install dependencies
