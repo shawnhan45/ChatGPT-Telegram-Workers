@@ -3,62 +3,27 @@ name: Deploy to Cloudflare Workers
 on:
   push:
     branches: [ "master" ]
-  schedule:
-    - cron: '0 5 * * *'   # 每天北京时间 13:00 (GMT+8)
   workflow_dispatch:
-
-permissions:
-  contents: write
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    name: Sync & Deploy
+    name: Deploy to Cloudflare
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Sync from upstream
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          if git remote | grep -qF upstream; then
-            git remote set-url upstream https://github.com/TBXark/ChatGPT-Telegram-Workers.git
-          else
-            git remote add upstream https://github.com/TBXark/ChatGPT-Telegram-Workers.git
-          fi
-
-          if ! git fetch upstream master; then
-            echo "::warning::Failed to fetch upstream, skipping sync"
-            exit 0
-          fi
-
-          if git merge-base --is-ancestor upstream/master HEAD; then
-            echo "Already up to date with upstream."
-          else
-            echo "Upstream has new commits, merging..."
-            if ! git merge upstream/master -m "Auto-sync from upstream"; then
-              echo "::warning::Merge conflict, skipping sync"
-              git merge --abort
-              exit 0
-            fi
-            git push origin HEAD:master || echo "::warning::Failed to push"
-          fi
+        uses: actions/checkout@v3
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v3
         with:
-          node-version: 22
+          node-version: 20
 
       - name: Create Wrangler config
         run: |
           touch wrangler.toml
           cat << 'EOF' > wrangler.toml
-          ${{secrets.WRANGLER_TOML}}
+          ${{secrets.WRANGLER_TOML}} 
           EOF
 
       - name: Install dependencies
@@ -80,6 +45,6 @@ jobs:
           if [ -z "$url" ]; then
             echo "::warning::CF_WORKERS_DOMAIN is not set"
           else
-            echo "Verifying deployment at https://$url"
-            curl -s -o /dev/null -w "HTTP %{http_code}" https://$url
+            echo "Verifying deployment at https://$url/init"
+            curl -s -o /dev/null https://$url/init
           fi
