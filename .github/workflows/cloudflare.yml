@@ -66,6 +66,6 @@ jobs:
           if [ -z "$url" ]; then
             echo "::warning::CF_WORKERS_DOMAIN is not set"
           else
-            echo "Verifying deployment at https://$url/init"
-            curl -s -o /dev/null https://$url/init
+            echo "Verifying deployment at https://$url"
+            curl -s -o /dev/null -w "HTTP %{http_code}" https://$url
           fi
