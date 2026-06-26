@@ -54,12 +54,12 @@ jobs:
 
       - name: Prepare Wrangler config
         run: |
-          # 用仓库自带的模板，替换 KV namespace ID
           cp wrangler-example.toml wrangler.toml
-          # 把模板里的空 id 替换成 secrets 中的真实 KV ID
+          # 替换为你的 Worker 名称
+          sed -i "s|name = 'chatgpt-telegram-workers'|name = '${{ secrets.WRANGLER_WORKER_NAME }}'|" wrangler.toml
+          # 替换 KV namespace ID
           sed -i "s|id = ''|id = '${{ secrets.WRANGLER_KV_ID }}'|" wrangler.toml
-          # 环境变量由 Cloudflare Dashboard 管理，不在部署中覆盖
-          # 如果 wrangler.toml 模板中有 [vars] 段，注释掉以免覆盖
+          # 注释掉模板中的 [vars] 段，环境变量由 Cloudflare Dashboard 管理
           sed -i '/^\[vars\]/,$ s/^\([^#]\)/#\1/' wrangler.toml
 
       - name: Install dependencies
@@ -73,11 +73,7 @@ jobs:
       - name: Deploy to Cloudflare
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-        run: |
-          # 从域名提取 Worker 名称（如 chatbot.shawnhan-sz.workers.dev → chatbot）
-          WORKER_NAME=$(echo "${{ secrets.CF_WORKERS_DOMAIN }}" | cut -d. -f1)
-          echo "Deploying to Worker: $WORKER_NAME"
-          pnpm run wrangler deploy --config=wrangler.toml --name="$WORKER_NAME"
+        run: pnpm run wrangler deploy --config=wrangler.toml
 
       - name: Verify deployment
         run: |
