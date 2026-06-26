@@ -39,7 +39,7 @@ jobs:
             echo "Already up to date with upstream."
           else
             echo "Upstream has new commits, merging..."
-            if ! git merge upstream/master -m "Auto-sync from upstream"; then
+            if ! git merge upstream/master -m "Auto-sync from upstream" --allow-unrelated-histories; then
               echo "::warning::Merge conflict, skipping sync"
               git merge --abort
               exit 0
