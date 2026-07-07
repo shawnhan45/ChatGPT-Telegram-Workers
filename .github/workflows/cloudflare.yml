@@ -84,3 +84,13 @@ jobs:
             echo "Verifying deployment at https://$url"
             curl -s -o /dev/null -w "HTTP %{http_code}" https://$url
           fi
+
+      - name: Register reminder commands
+        run: |
+          proxy_url=${{ secrets.PROXY_WORKER_URL }}
+          if [ -z "$proxy_url" ]; then
+            echo "::warning::PROXY_WORKER_URL is not set, skipping command registration"
+          else
+            echo "Registering reminder commands via $proxy_url/init"
+            curl -s "$proxy_url/init"
+          fi
