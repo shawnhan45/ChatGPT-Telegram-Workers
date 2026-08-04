@@ -1,109 +1,64 @@
-name: Deploy to Cloudflare Workers
+name: Deploy reviewed chatbot commit
 
 on:
   push:
-    branches: [ "master" ]
-  # 上游 TBXark 更新频率很低，去掉每日定时同步。
-  # 需要同步时在 Actions 页面手动触发 workflow_dispatch，或 push 代码即可。
+    branches: [master]
   workflow_dispatch:
 
+# 同一时间只允许一个生产部署，新的部署会取消仍在排队的旧部署。
+concurrency:
+  group: chatbot-production
+  cancel-in-progress: false
+
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    name: Sync & Deploy
+    name: Build & Deploy
 
     steps:
-      - name: Checkout repository
+      - name: Checkout reviewed commit
         uses: actions/checkout@v4
-
-      - name: Sync from upstream
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          if git remote | grep -qF upstream; then
-            git remote set-url upstream https://github.com/TBXark/ChatGPT-Telegram-Workers.git
-          else
-            git remote add upstream https://github.com/TBXark/ChatGPT-Telegram-Workers.git
-          fi
-
-          if ! git fetch upstream master; then
-            echo "::warning::Failed to fetch upstream, skipping sync"
-            exit 0
-          fi
-
-          if git merge-base --is-ancestor upstream/master HEAD; then
-            echo "Already up to date with upstream."
-          else
-            echo "Upstream has new commits, merging..."
-            if ! git merge upstream/master -m "Auto-sync from upstream" --allow-unrelated-histories; then
-              echo "::warning::Merge conflict, skipping sync"
-              git merge --abort
-              exit 0
-            fi
-            git push origin HEAD:master || echo "::warning::Failed to push"
-          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - name: Prepare Wrangler config
+        shell: bash
         run: |
           cp wrangler-example.toml wrangler.toml
-          # 替换为你的 Worker 名称
           sed -i "s|name = 'chatgpt-telegram-workers'|name = '${{ secrets.WRANGLER_WORKER_NAME }}'|" wrangler.toml
-          # 替换 KV namespace ID
           sed -i "s|id = ''|id = '${{ secrets.WRANGLER_KV_ID }}'|" wrangler.toml
-          # 注释掉模板中的 [vars] 段，环境变量由 Cloudflare Dashboard 管理
-          sed -i '/^\[vars\]/,$ s/^\([^#]\)/#\1/' wrangler.toml
+          sed -i '/^\[vars\]$/d' wrangler.toml
+          sed -i '/^workers_dev = true$/a keep_vars = true' wrangler.toml
 
-      - name: Install dependencies
-        run: |
-          npm install -g pnpm
-          pnpm install --ignore-scripts
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build project
+      - name: Build
         run: pnpm run build
 
-      - name: Deploy to Cloudflare
+      - name: Deploy chatbot Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         run: pnpm run wrangler deploy --config=wrangler.toml
 
       - name: Verify deployment
+        shell: bash
         run: |
-          url=${{ secrets.CF_WORKERS_DOMAIN }}
-          if [ -z "$url" ]; then
+          if [ -z "${{ secrets.CF_WORKERS_DOMAIN }}" ]; then
             echo "::warning::CF_WORKERS_DOMAIN is not set"
-          else
-            echo "Verifying deployment at https://$url"
-            curl -s -o /dev/null -w "HTTP %{http_code}" https://$url
+            exit 0
           fi
-
-      - name: Register webhook to proxy Worker
-        run: |
-          proxy_url=${{ secrets.PROXY_WORKER_URL }}
-          if [ -z "$proxy_url" ]; then
-            echo "::error::PROXY_WORKER_URL is not set, webhook registration failed!"
-            exit 1
-          fi
-          echo "Registering webhook via $proxy_url/init"
-          resp=$(curl --fail --retry 3 -s "$proxy_url/init")
-          if [ $? -ne 0 ]; then
-            echo "::error::curl to proxy /init failed (network error or HTTP 4xx/5xx)"
-            exit 1
-          fi
-          echo "Response: $resp"
-          # 验证返回结果：webhook 和 commands 都必须成功
-          wh_ok=$(echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['webhook']['ok'])" 2>/dev/null)
-          cmd_ok=$(echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['commands']['ok'])" 2>/dev/null)
-          if [ "$wh_ok" != "True" ] || [ "$cmd_ok" != "True" ]; then
-            echo "::error::Webhook or command registration failed (webhook_ok=$wh_ok, commands_ok=$cmd_ok)"
-            exit 1
-          fi
-          echo "Webhook and commands registered successfully."
+          curl --fail --silent --show-error --retry 3 \
+            "https://${{ secrets.CF_WORKERS_DOMAIN }}" >/dev/null
+          echo "Chatbot health check passed."
