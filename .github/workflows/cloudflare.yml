@@ -47,6 +47,12 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      # wrangler.toml deploys dist/index.js, while the workspace build writes the
+      # current Worker bundle under packages/apps/workers/dist/index.js.
+      - name: Prepare built Worker for deployment
+        shell: bash
+        run: cp packages/apps/workers/dist/index.js dist/index.js
+
       - name: Deploy chatbot Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}

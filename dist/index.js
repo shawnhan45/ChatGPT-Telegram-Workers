@@ -2033,17 +2033,17 @@ class AgentListCallbackQueryHandler {
     this.createKeyboard = this.createKeyboard.bind(this);
   }
   static Chat() {
-    return new AgentListCallbackQueryHandler("al:", "ca:", () => {
-      return CHAT_AGENTS.filter((agent) => agent.enable(ENV.USER_CONFIG)).map((agent) => agent.name);
+    return new AgentListCallbackQueryHandler("al:", "ca:", (context) => {
+      return CHAT_AGENTS.filter((agent) => agent.enable(context.USER_CONFIG)).map((agent) => agent.name);
     });
   }
   static Image() {
-    return new AgentListCallbackQueryHandler("ial:", "ica:", () => {
-      return IMAGE_AGENTS.filter((agent) => agent.enable(ENV.USER_CONFIG)).map((agent) => agent.name);
+    return new AgentListCallbackQueryHandler("ial:", "ica:", (context) => {
+      return IMAGE_AGENTS.filter((agent) => agent.enable(context.USER_CONFIG)).map((agent) => agent.name);
     });
   }
   handle = async (query, data, context) => {
-    const names = this.agentLoader();
+    const names = this.agentLoader(context);
     const sender = MessageSender.fromCallbackQuery(context.SHARE_CONTEXT.botToken, query);
     const params = {
       chat_id: query.message?.chat.id || 0,
@@ -2096,7 +2096,7 @@ function loadAgentContext(query, data, context, prefix, agentLoader, changeAgent
   if (!agent) {
     throw new Error(`agent not found: ${agent}`);
   }
-  const conf = changeAgentType(ENV.USER_CONFIG, agent);
+  const conf = changeAgentType(context.USER_CONFIG, agent);
   const theAgent = agentLoader(conf);
   if (!theAgent?.modelKey) {
     throw new Error(`modelKey not found: ${agent}`);
@@ -2958,57 +2958,6 @@ async function handleCommandMessage(message, context) {
   }
   return null;
 }
-function commandsBindScope() {
-  const scopeCommandMap = {
-    all_private_chats: [],
-    all_group_chats: [],
-    all_chat_administrators: []
-  };
-  for (const cmd of SYSTEM_COMMANDS) {
-    if (ENV.HIDE_COMMAND_BUTTONS.includes(cmd.command)) {
-      continue;
-    }
-    if (cmd.scopes) {
-      for (const scope of cmd.scopes) {
-        if (!scopeCommandMap[scope]) {
-          scopeCommandMap[scope] = [];
-        }
-        const desc = ENV.I18N.command.help[cmd.command.substring(1)] || "";
-        if (desc) {
-          scopeCommandMap[scope].push({
-            command: cmd.command,
-            description: desc
-          });
-        }
-      }
-    }
-  }
-  for (const list of [ENV.CUSTOM_COMMAND, ENV.PLUGINS_COMMAND]) {
-    for (const [cmd, config] of Object.entries(list)) {
-      if (config.scope) {
-        for (const scope of config.scope) {
-          if (!scopeCommandMap[scope]) {
-            scopeCommandMap[scope] = [];
-          }
-          scopeCommandMap[scope].push({
-            command: cmd,
-            description: config.description || ""
-          });
-        }
-      }
-    }
-  }
-  const result = {};
-  for (const scope in scopeCommandMap) {
-    result[scope] = {
-      commands: scopeCommandMap[scope],
-      scope: {
-        type: scope
-      }
-    };
-  }
-  return result;
-}
 function commandsDocument() {
   return SYSTEM_COMMANDS.map((command) => {
     return {
@@ -3347,44 +3296,24 @@ class Router {
     return this.route("ALL", path, ...handlers);
   }
 }
+function disabledTelegramInitResponse(footer = "") {
+  const html = renderHTML(`
+    <h1>Telegram initialization is disabled here</h1>
+    <p>The shared Bot webhook and command menu are managed by <strong>reminder-proxy</strong>.</p>
+    <p>This endpoint no longer changes Telegram settings.</p>
+    ${footer}
+  `);
+  return new Response(html, { status: 409, headers: { "Content-Type": "text/html" } });
+}
 const helpLink = "https://github.com/TBXark/ChatGPT-Telegram-Workers/blob/master/doc/en/DEPLOY.md";
 const issueLink = "https://github.com/TBXark/ChatGPT-Telegram-Workers/issues";
-const initLink = "./init";
 const footer = `
 <br/>
 <p>For more information, please visit <a href="${helpLink}">${helpLink}</a></p>
 <p>If you have any questions, please visit <a href="${issueLink}">${issueLink}</a></p>
 `;
-async function bindWebHookAction(request) {
-  const result = {};
-  const domain = new URL(request.url).host;
-  const hookMode = ENV.API_GUARD ? "safehook" : "webhook";
-  const scope = commandsBindScope();
-  for (const token of ENV.TELEGRAM_AVAILABLE_TOKENS) {
-    const api = createTelegramBotAPI(token);
-    const url = `https://${domain}/telegram/${token.trim()}/${hookMode}`;
-    const id = token.split(":")[0];
-    result[id] = {};
-    result[id].webhook = await api.setWebhook({ url }).then((res) => res.json()).catch((e) => errorToString(e));
-    for (const [s, data] of Object.entries(scope)) {
-      result[id][s] = await api.setMyCommands(data).then((res) => res.json()).catch((e) => errorToString(e));
-    }
-  }
-  let html = `<h1>ChatGPT-Telegram-Workers</h1>`;
-  html += `<h2>${domain}</h2>`;
-  if (ENV.TELEGRAM_AVAILABLE_TOKENS.length === 0) {
-    html += `<p style="color: red">Please set the <strong> TELEGRAM_AVAILABLE_TOKENS </strong> environment variable in Cloudflare Workers.</p> `;
-  } else {
-    for (const [key, res] of Object.entries(result)) {
-      html += `<h3>Bot: ${key}</h3>`;
-      for (const [s, data] of Object.entries(res)) {
-        html += `<p style="color: ${data.ok ? "green" : "red"}">${s}: ${JSON.stringify(data)}</p>`;
-      }
-    }
-  }
-  html += footer;
-  const HTML = renderHTML(html);
-  return new Response(HTML, { status: 200, headers: { "Content-Type": "text/html" } });
+async function bindWebHookAction() {
+  return disabledTelegramInitResponse(footer);
 }
 async function telegramWebhook(request) {
   try {
@@ -3418,7 +3347,7 @@ async function defaultIndexAction() {
     <p>Deployed Successfully!</p>
     <p> Version (ts:${ENV.BUILD_TIMESTAMP},sha:${ENV.BUILD_VERSION})</p>
     <br/>
-    <p>You must <strong><a href="${initLink}"> >>>>> click here <<<<< </a></strong> to bind the webhook.</p>
+    <p>Telegram webhook and command-menu initialization are managed by <strong>reminder-proxy</strong>.</p>
     <br/>
     <p>After binding the webhook, you can use the following commands to control the bot:</p>
     ${commandsDocument().map((item) => `<p><strong>${item.command}</strong> - ${item.description}</p>`).join("")}
