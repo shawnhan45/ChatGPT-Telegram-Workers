@@ -1,50 +1,22 @@
 import type { RouterRequest } from '#/utils/router';
 import type * as Telegram from 'telegram-bot-api-types';
 import { ENV } from '#/config';
-import { createTelegramBotAPI, handleUpdate } from '#/telegram';
-import { commandsBindScope, commandsDocument } from '#/telegram/command';
+import { handleUpdate } from '#/telegram';
+import { commandsDocument } from '#/telegram/command';
 import { errorToString, makeResponse200, renderHTML } from '#/utils/resp';
 import { Router } from '#/utils/router';
+import { disabledTelegramInitResponse } from './telegram-init';
 
 const helpLink = 'https://github.com/TBXark/ChatGPT-Telegram-Workers/blob/master/doc/en/DEPLOY.md';
 const issueLink = 'https://github.com/TBXark/ChatGPT-Telegram-Workers/issues';
-const initLink = './init';
 const footer = `
 <br/>
 <p>For more information, please visit <a href="${helpLink}">${helpLink}</a></p>
 <p>If you have any questions, please visit <a href="${issueLink}">${issueLink}</a></p>
 `;
 
-async function bindWebHookAction(request: RouterRequest): Promise<Response> {
-    const result: Record<string, Record<string, any>> = {};
-    const domain = new URL(request.url).host;
-    const hookMode = ENV.API_GUARD ? 'safehook' : 'webhook';
-    const scope = commandsBindScope();
-    for (const token of ENV.TELEGRAM_AVAILABLE_TOKENS) {
-        const api = createTelegramBotAPI(token);
-        const url = `https://${domain}/telegram/${token.trim()}/${hookMode}`;
-        const id = token.split(':')[0];
-        result[id] = {};
-        result[id].webhook = await api.setWebhook({ url }).then(res => res.json()).catch(e => errorToString(e));
-        for (const [s, data] of Object.entries(scope)) {
-            result[id][s] = await api.setMyCommands(data).then(res => res.json()).catch(e => errorToString(e));
-        }
-    }
-    let html = `<h1>ChatGPT-Telegram-Workers</h1>`;
-    html += `<h2>${domain}</h2>`;
-    if (ENV.TELEGRAM_AVAILABLE_TOKENS.length === 0) {
-        html += `<p style="color: red">Please set the <strong> TELEGRAM_AVAILABLE_TOKENS </strong> environment variable in Cloudflare Workers.</p> `;
-    } else {
-        for (const [key, res] of Object.entries(result)) {
-            html += `<h3>Bot: ${key}</h3>`;
-            for (const [s, data] of Object.entries(res)) {
-                html += `<p style="color: ${data.ok ? 'green' : 'red'}">${s}: ${JSON.stringify(data)}</p>`;
-            }
-        }
-    }
-    html += footer;
-    const HTML = renderHTML(html);
-    return new Response(HTML, { status: 200, headers: { 'Content-Type': 'text/html' } });
+async function bindWebHookAction(): Promise<Response> {
+    return disabledTelegramInitResponse(footer);
 }
 
 async function telegramWebhook(request: RouterRequest): Promise<Response> {
@@ -86,7 +58,7 @@ async function defaultIndexAction(): Promise<Response> {
     <p>Deployed Successfully!</p>
     <p> Version (ts:${ENV.BUILD_TIMESTAMP},sha:${ENV.BUILD_VERSION})</p>
     <br/>
-    <p>You must <strong><a href="${initLink}"> >>>>> click here <<<<< </a></strong> to bind the webhook.</p>
+    <p>Telegram webhook and command-menu initialization are managed by <strong>reminder-proxy</strong>.</p>
     <br/>
     <p>After binding the webhook, you can use the following commands to control the bot:</p>
     ${
